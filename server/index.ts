@@ -793,6 +793,33 @@ app.post('/api/sandbox/run', async (req, res) => {
       resultText = stdout.trim();
       agentUsed = 'opencode';
 
+    } else if (safeType === 'website') {
+      setTaskProgress(task, 'running', { agent: 'eburon_worker' });
+      const websiteSystemMsg = `
+You are a senior frontend engineer.
+Generate one complete standalone HTML file.
+
+Hard rules:
+- Return ONLY raw HTML.
+- Start with <!DOCTYPE html>.
+- Include <html>, <head>, and <body>.
+- Put all CSS inside one <style> tag.
+- Put JavaScript inside one <script> tag only if useful.
+- Do not return markdown.
+- Do not return explanations.
+- Do not return bullet points.
+- Do not wrap in code fences.
+`;
+      try {
+        const eburonResult = await generateEburonWorker({
+          prompt: safeDesc,
+          systemInstruction: websiteSystemMsg,
+        });
+        resultText = eburonResult.text || '[No response from sandbox]';
+        agentUsed = 'eburon_worker';
+      } catch (e: any) {
+        throw new Error(`Website generation failed: ${e.message}`);
+      }
     } else {
       setTaskProgress(task, 'running', { agent: 'ollama' });
       const autoSystemMsg = 'You are a sandbox sub-agent. Complete the task and return the result concisely.';

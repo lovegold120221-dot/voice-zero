@@ -4184,31 +4184,26 @@ ${historyContext}
                       const title = String(args.title || 'Website');
                       const prompt = String(args.prompt || '');
                       const generationTaskId = crypto.randomUUID();
-                      const sandboxTaskId = crypto.randomUUID();
+                      const timestamp = Date.now().toString();
                       try {
                         setGeneratedDocumentTask(generationTaskId, title, '', 'working');
-                        const evtSource = new EventSource(`/api/sandbox/progress/${sandboxTaskId}`);
-                        evtSource.onmessage = (e) => {
-                          try {
-                            const p = JSON.parse(e.data);
-                            if (p.status === 'running') setGeneratedDocumentTask(generationTaskId, title, '', 'working');
-                          } catch {}
-                        };
-                        const resp = await fetch('/api/sandbox/run', {
+                        const resp = await fetch('/api/website/generate', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
-                            task_description: `Title: ${title}\n\nRequest: ${prompt}\n\nTemplate: ${args.template || 'landing'}\n\nGenerate a complete standalone HTML file.`,
-                            task_type: 'website',
-                            timeout: 120,
-                            taskId: sandboxTaskId,
+                            userId: user.uid,
+                            title,
+                            prompt: `${prompt}\n\nWebsite type/template: ${args.template || 'landing'}`,
+                            timestamp,
                           }),
                         });
-                        evtSource.close();
                         const data = await resp.json();
                         if (!resp.ok || !data.ok) throw new Error(data.error || 'Website generation failed');
-                        let html = data.result;
-                        try { html = extractHtmlArtifact(html); } catch {}
+                        const htmlResp = await fetch(data.slug);
+                        const html = await htmlResp.text();
+                        if (!html || (!html.toLowerCase().includes('<!doctype html') && !html.toLowerCase().includes('<html'))) {
+                          throw new Error('Generated website did not return valid HTML.');
+                        }
                         setGeneratedDocumentTask(generationTaskId, title, html, 'done');
                         const wsOutput = {
                           id: `web_${generationTaskId}`,
@@ -4221,7 +4216,14 @@ ${historyContext}
                           createdAt: new Date().toISOString(),
                         };
                         saveOutput(wsOutput).catch(() => {});
-                        result = { ok: true, title, content: html, template: args.template || 'landing', agent: data.agent || 'backend' };
+                        result = {
+                          ok: true,
+                          title,
+                          content: html,
+                          previewUrl: data.slug,
+                          template: args.template || 'landing',
+                          agent: 'website-generator',
+                        };
                       } catch (e: any) {
                         setGeneratedDocumentTask(generationTaskId, title, '', 'error');
                         result = { ok: false, error: e.message || 'Website generation failed' };
@@ -4303,7 +4305,10 @@ ${historyContext}
                       setTasks(prev => prev.filter(t => t.id !== taskId));
                     }, 8000);
 
-                    if (!(callName === 'create_document' && result?.content)) {
+                    if (
+                      !(callName === 'create_document' && result?.content) &&
+                      !(callName === 'generate_website' && result?.content)
+                    ) {
                       if (callName !== 'dial_contact' && callName !== 'whatsapp_call') {
                         showToolResult(callName, result);
                       }
