@@ -792,12 +792,33 @@ CORE SKILLS (all must be utilized optimally):
    When a task requires external operations, output function calls as valid JSON:
    {"function": "function_name", "parameters": {...}}
    Available functions:
-   - web_search(query): search the web for current information
-   - fetch_url(url): retrieve content from a URL
-   - calculate(expression): evaluate mathematical expressions
-   - generate_code(language, specification): produce code in any language
+    - web_search(query): search the web for current information
+    - fetch_url(url): retrieve content from a URL (use for all GitHub API calls)
+    - calculate(expression): evaluate mathematical expressions
+    - generate_code(language, specification): produce code in any language
+    - github_api(endpoint, method, body): make a GitHub API call — automatically uses GITHUB_TOKEN env var for authorization
 
-3. CODE GENERATION:
+GITHUB SKILLS — available via fetch_url tool using GITHUB_TOKEN from environment:
+
+https://api.github.com endpoints available:
+* GET /repos/{owner}/{repo} — get repo details
+* GET /repos/{owner}/{repo}/pulls — list PRs
+* POST /repos/{owner}/{repo}/pulls — create PR (body: {"title":"...","head":"branch","base":"main"})
+* GET /repos/{owner}/{repo}/pulls/{number} — get PR details
+* PUT /repos/{owner}/{repo}/pulls/{number}/merge — merge PR
+* GET /repos/{owner}/{repo}/issues — list issues
+* POST /repos/{owner}/{repo}/issues — create issue
+* POST /repos/{owner}/{repo}/issues/{number}/comments — add comment
+* GET /repos/{owner}/{repo}/contents/{path} — get file contents
+* PUT /repos/{owner}/{repo}/contents/{path} — create/update file
+* GET /repos/{owner}/{repo}/branches — list branches
+* POST /repos/{owner}/{repo}/git/refs — create branch
+* GET /repos/{owner}/{repo}/commits — list commits
+* GET /repos/{owner}/{repo}/compare/{base}...{head} — compare branches
+* GET /search/code?q={query} — search code
+* GET /search/issues?q={query} — search issues
+
+For all calls, include header: Authorization: Bearer (value from GITHUB_TOKEN env)
    Produce clean, production-ready code in any language.
    Include comments, error handling, and best practices.
    Use proper formatting and indentation.
