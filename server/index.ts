@@ -1218,16 +1218,7 @@ app.post('/api/sandbox/run', async (req, res) => {
 
     let agentUsed = 'unknown';
 
-    if (safeType === 'opencode' || safeType === 'code') {
-      setTaskProgress(task, 'running', { agent: 'opencode' });
-      const stdout = execSync(
-        `${OPENCODE_PATH} run ${JSON.stringify(safeDesc)} --timeout ${safeTimeout}`,
-        { encoding: 'utf-8', timeout: safeTimeout * 1000, maxBuffer: 10 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }
-      );
-      resultText = stdout.trim();
-      agentUsed = 'opencode';
-
-    } else if (safeType === 'hermes' || safeType === 'multitask') {
+    if (safeType === 'hermes' || safeType === 'multitask' || safeType === 'opencode' || safeType === 'code') {
       // Hermes Multitask Agent — direct routing with all Hermes skills
       setTaskProgress(task, 'running', { agent: 'eburon_multimodal_pro' });
       try {
