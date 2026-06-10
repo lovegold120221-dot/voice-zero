@@ -4604,7 +4604,6 @@ ${historyContext}
                         let html = data.result;
                         html = extractHtmlArtifact(html);
 
-                        await showCompletionTransition('document');
                         setGeneratedDocumentTask(generationTaskId, title, html, 'done');
 
                         const wsOutput = {
@@ -4674,7 +4673,6 @@ ${historyContext}
                         let html = data.result;
                         html = extractHtmlArtifact(html);
 
-                        await showCompletionTransition('website');
                         setGeneratedDocumentTask(generationTaskId, title, html, 'done');
                         const wsOutput = {
                           id: `web_${generationTaskId}`,
@@ -4783,8 +4781,11 @@ ${historyContext}
 
                     if (!(artifactToolNames.has(callName) && result?.content)) {
                       if (callName !== 'dial_contact' && callName !== 'whatsapp_call') {
-                        await showCompletionTransition(serviceName);
                         showToolResult(callName, result);
+                      } else {
+                        // For dial/call tools, close the sandbox since we've navigated away or opened a protocol
+                        setShowDocumentViewer(false);
+                        setActiveDocument(null);
                       }
                     }
 
