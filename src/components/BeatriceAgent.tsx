@@ -1120,6 +1120,10 @@ export function BeatriceAgent({
   const RECONNECT_BASE_DELAY_MS = 1000;
   const [reconnecting, setReconnecting] = useState(false);
 
+  // ── Pre-loaded data refs (fetched on mount, consumed by startSession) ──
+  const preloadedWaChatsRef = useRef<any[] | null>(null);
+  const preloadedAtRef = useRef<number>(0);
+
   // Track previous settings values for real-time session updates
   const prevPersonaRef = useRef(personaName);
   const prevTitleRef = useRef(userTitle);
@@ -2624,6 +2628,23 @@ export function BeatriceAgent({
     };
   }, [user.uid]);
 
+  // ── Pre-fetch WhatsApp chats for quick session start ──
+  useEffect(() => {
+    if (waStatus !== 'paired') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { callWhatsAppTool } = await import('../lib/whatsappClient');
+        const chatsResult = await callWhatsAppTool(user.uid, 'readChats', { limit: 10 }, waPermissions);
+        if (!cancelled && chatsResult?.chats) {
+          preloadedWaChatsRef.current = chatsResult.chats;
+          preloadedAtRef.current = Date.now();
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [user.uid, waStatus]);
+
   // ── Real-time WhatsApp message streaming via SSE ──
   useEffect(() => {
     if (waStatus !== 'paired') return;
@@ -2770,7 +2791,36 @@ export function BeatriceAgent({
       aiRef.current = new (_m as any)[_SDK]({ apiKey });
     }
 
-    if (!googleToken) {
+    // ── Proactively renew Google OAuth token ──
+    let freshGoogleToken = googleToken;
+    try {
+      const refreshToken = localStorage.getItem('beatrice_google_refresh_token');
+      if (refreshToken) {
+        const res = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: process.env.GOOGLE_CLIENT_ID || '',
+            client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+            refresh_token: refreshToken,
+            grant_type: 'refresh_token'
+          })
+        });
+        const data = await res.json();
+        if (data.access_token) {
+          setGoogleToken(data.access_token);
+          googleTokenRef.current = data.access_token;
+          freshGoogleToken = data.access_token;
+          if (auth.currentUser) {
+            storeToken(data.access_token, auth.currentUser.uid, refreshToken);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Google token refresh failed on session start:", e);
+    }
+
+    if (!freshGoogleToken) {
       console.warn("Google token missing. Google services will be disabled until you re-authenticate.");
     }
 
@@ -2786,9 +2836,14 @@ export function BeatriceAgent({
     try {
       let waMessages: any[] = [];
       if (waStatus === 'paired') {
-        const { callWhatsAppTool } = await import('../lib/whatsappClient');
-        const chatsResult = await callWhatsAppTool(user.uid, 'readChats', { limit: 5 }, waPermissions);
-        waMessages = chatsResult?.chats || [];
+        // Use preloaded chats if fresh (less than 60s old) to avoid redundant fetch
+        if (preloadedWaChatsRef.current && preloadedAtRef.current && Date.now() - preloadedAtRef.current < 60000) {
+          waMessages = preloadedWaChatsRef.current.slice(0, 5);
+        } else {
+          const { callWhatsAppTool } = await import('../lib/whatsappClient');
+          const chatsResult = await callWhatsAppTool(user.uid, 'readChats', { limit: 5 }, waPermissions);
+          waMessages = chatsResult?.chats || [];
+        }
         const chatLines = waMessages.map((c: any) => `  - ${c.name || 'Unknown'}: "${(c.lastMessage || '').slice(0, 80)}"`);
         whatsAppContext = `\n\nUSER WHATSAPP CONVERSATIONS (recent chats from your paired WhatsApp):\n${chatLines.join('\n')}\n\nYou can read full message history with get_whatsapp_message_history, send messages with send_whatsapp_message, and manage contacts with get_whatsapp_contacts.`;
       }
@@ -2884,7 +2939,7 @@ GOOGLE SERVICES PERMISSION RULE:
 You can access the user's Google Calendar, Gmail, Tasks, Drive, and YouTube. The user asking you about their data IS their permission — execute immediately. Do NOT pre-ask for permission. Do not say "shall I check your calendar?" — if they asked about their schedule, just check. Only pause for confirmation on destructive actions like deleting emails, deleting events, or sending emails (show the recipient/subject first for send). For reading — just do it.
 
 CURRENT AUTHENTICATION STATUS:
-- Google Services (Gmail, Calendar, Drive, Tasks, YouTube, Contacts): ${googleToken ? 'AUTHENTICATED - You have the technical permission token.' : 'NOT AUTHENTICATED - You lack the required permission token.'}
+- Google Services (Gmail, Calendar, Drive, Tasks, YouTube, Contacts): ${freshGoogleToken ? 'AUTHENTICATED - You have the technical permission token.' : 'NOT AUTHENTICATED - You lack the required permission token. The user can reconnect via Settings → Google Services.'}
 - WhatsApp Integration: ${waStatus === 'paired' ? 'CONNECTED - You have the technical permission token.' : 'NOT CONNECTED - You lack the required permission token.'}
 
 --- SYSTEM PERMISSIONS STATUS ---
@@ -2954,51 +3009,25 @@ You are equipped with 10 high-value administrative and business tools tailored f
 
 Use these tools only when explicitly requested. Walk them through the details in your signature witty, charming, and sharp voice!
 
-SANDBOX SUB-AGENT GUIDANCE:
-You have access to run_sandbox_task for complex tasks that need heavy processing, coding, research, or document drafting.
-- Use run_sandbox_task when the task is complex, multi-step, or would benefit from a dedicated reasoning pass (code review, analysis, research, long-form writing).
-- Do NOT use it for simple operations (sending messages, reading chats, looking up contacts) — use the dedicated WhatsApp/Google tools for those.
-- After the sandbox returns a result, present it in first person as if you did the work: "I've reviewed the code and found..." or "I've drafted that document for you." Never mention the sandbox or sub-agent.
-- The sandbox has its own context window, so it can handle longer tasks without bloating your conversation memory.
-- The sandbox runs on the local VPS with a cascade: local Ollama models (fast, zero-latency) for light tasks, Eburon Core for heavy/complex tasks, and Cerebras API for browser automation. You do not need to worry about which — just delegate and I'll handle it.
+SKILL ROUTING DECISION TREE — Use this exact logic to choose the right tool:
 
-OPEN TERMINAL SKILLS GUIDANCE:
-You have access to open_terminal_skills for running tasks through the local OpenCode CLI — a powerful AI coding assistant on this VPS.
+1. GENERAL CHAT, WHATSAPP MSGS, GOOGLE SERVICES, BELGIAN TOOLS, MEMORY, MEDIA:
+   - Use the dedicated tool directly (send_whatsapp_text, list_gmail_messages, belgian_company_lookup, etc.)
+   - NEVER route these to run_sandbox_task or open_terminal_skills.
 
-WHEN TO USE open_terminal_skills:
-- The user asks you to build an app, create a website, or generate a live tool.
-- The user asks you to inspect, modify, or analyze the repository code.
-- The user asks you to run a terminal command, script, or dev tool.
-- The user mentions "use OpenCode", "terminal task", "run this", or "build me a".
-- The user wants a live, hosted result they can open in a browser.
+2. run_sandbox_task — Use for: heavy analysis, code review, long-form writing, research, multi-step reasoning, document drafting, complex data processing, file conversion, batch operations, or anything that needs its own dedicated context window. The sandbox has access to AI models and can work autonomously. Present results in first person: "I've reviewed the code and found...".
 
-HOW TO BUILD APPS WITH open_terminal_skills:
-- Always provide an "appName" — a short, URL-safe name for the app (e.g. "todo-list", "calculator", "landing-page").
-- The app will be generated in /data/beatrice-workspace/{safe-user-id}/{appName}/ on this VPS.
-- The app MUST be a standalone client-side HTML/CSS/JS app. No server, no build steps, no framework installs.
-- After generation, the app is served live at: https://whatsapp.eburon.ai/beatrice-workspace/{safe-user-id}/{appName}/
-- Write complete, polished code. Use inline CSS/JS or absolute CDN URLs (Font Awesome, Google Fonts, Tailwind CDN).
-- Create directories and write files using terminal commands: mkdir -p, cat with heredoc, or tee.
-- Example task: "Create an app called 'color-picker' in /data/beatrice-workspace/{safe-user-id}/color-picker with index.html that has a full-featured color picker using only client-side code."
-- After the task completes, I will receive an appUrl. Present it to the user as: "Your app is live at: [URL]" with a prominent link.
+3. open_terminal_skills — Use for: building live HTML/CSS/JS apps ("build me a website/tool/app"), running terminal commands, using OpenCode CLI on the repo ("inspect the repo", "find this pattern", "modify the codebase"), or any "build me a..." request where a live URL is expected. The app URL will be at https://whatsapp.eburon.ai/beatrice-workspace/{safe-user-id}/{appName}/.
 
-HOW TO USE OPENCODE FOR CODING TASKS:
-- For code analysis, bug fixes, or feature requests on the repository: describe the task clearly and include file paths.
-- For general terminal work: provide the exact command or describe what you need done.
-- For research/investigation: ask OpenCode to inspect specific files, search for patterns, or find issues.
-- Always provide enough context so the OpenCode agent can complete the task autonomously.
+4. cerebras_browser_task — Use for: visiting specific URLs, form filling, data extraction from live websites, any "go to this website", "search this site", "fill out this form" request. Not for quick lookups (built-in search handles that).
 
-CAPABILITIES OF OPENCODE:
-- OpenCode can read/write files, run shell commands, search the codebase, install npm packages, run git commands, and more.
-- It uses the deepseek-v4-flash-free model by default — fast and capable for most coding tasks.
-- It has access to the full repository at /app on this VPS.
-- Skills available: dokploy-deploy (for Dokploy deployment tasks).
-
-IMPORTANT RULES:
-- Do not use open_terminal_skills for normal chat, WhatsApp, Google services, browser automation, or document generation — those have dedicated tools.
-- Provide a precise task description. Include file paths, expected output, and constraints when relevant.
-- Summarize the terminal result from stdout/stderr naturally. If the task fails, report the failure and the useful error text.
-- When an appUrl is returned, always present it prominently to the user with a clickable link.
+DECISION RULES:
+- If user says "build me an app", "create a website", "make a tool", "use OpenCode", "run this command", "inspect the repo", "terminal task" → open_terminal_skills with appName
+- If user says "analyze this code", "review this", "draft a document", "do deep research", "compare these", "explain this in detail", "write a report", "process this data" → run_sandbox_task
+- If user says "go to URL", "find data on this site", "scrape", "fill form", "login to" → cerebras_browser_task
+- If user says "send message", "read chats", "check email", "look up calendar", "look up company" → use the dedicated tool directly
+- If user says "remember this", "save this" → add_to_memory
+- Never ask "which tool should I use" — just pick the right one based on this tree.
 
 BROWSER AGENT GUIDANCE:
 You have access to cerebras_browser_task for web browsing, data extraction, form filling, and any task that requires interacting with a live website.
@@ -3034,35 +3063,6 @@ ${GLOBAL_KNOWLEDGE_BASE}
 ${historyContext}
 `;
 
-    const refreshGoogleToken = async (): Promise<string | null> => {
-      try {
-        const refreshToken = localStorage.getItem('beatrice_google_refresh_token');
-        if (!refreshToken) return null;
-        const res = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            client_id: process.env.GOOGLE_CLIENT_ID || '',
-            client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
-            refresh_token: refreshToken,
-            grant_type: 'refresh_token'
-          })
-        });
-        const data = await res.json();
-        if (data.access_token) {
-          setGoogleToken(data.access_token);
-          googleTokenRef.current = data.access_token;
-          if (auth.currentUser) {
-            storeToken(data.access_token, auth.currentUser.uid, refreshToken);
-          }
-          return data.access_token;
-        }
-      } catch (e) {
-        console.error("Token refresh failed", e);
-      }
-      return null;
-    };
-
     const gFetch = async (url: string, options?: RequestInit, isRetry = false): Promise<{ ok: boolean; status: number; data: any }> => {
       const currentTok = googleTokenRef.current;
       if (!currentTok) return { ok: false, status: 0, data: { error: 'No access token' } };
@@ -3073,10 +3073,28 @@ ${historyContext}
         });
 
         if (!isRetry && (res.status === 401 || res.status === 403)) {
-          const newTok = await refreshGoogleToken();
-          if (newTok) {
-            return await gFetch(url, options, true);
-          }
+          // Proactively refresh OAuth token
+          try {
+            const rt = localStorage.getItem('beatrice_google_refresh_token');
+            if (rt) {
+              const tres = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  client_id: process.env.GOOGLE_CLIENT_ID || '',
+                  client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+                  refresh_token: rt,
+                  grant_type: 'refresh_token'
+                })
+              });
+              const tdata = await tres.json();
+              if (tdata.access_token) {
+                setGoogleToken(tdata.access_token);
+                googleTokenRef.current = tdata.access_token;
+                return await gFetch(url, options, true);
+              }
+            }
+          } catch {}
         }
 
         const text = await res.text();
