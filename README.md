@@ -98,8 +98,28 @@ Every output Beatrice produces is automatically saved:
 
 ## Quick Start
 
-### Prerequisites
+### One-Paste Install (Freshly Formatted Machine)
+Works on macOS, Debian, Ubuntu, and Windows. Installs Node.js 22, Python 3.11, Chromium, Git, all dependencies, and runs the app.
+
+**macOS / Debian / Ubuntu:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/lovegold120221-dot/turbo-dollop/main/bootstrap.sh | bash
+```
+
+**Windows (PowerShell as Administrator):**
+```powershell
+irm https://raw.githubusercontent.com/lovegold120221-dot/turbo-dollop/main/install.ps1 | iex
+```
+
+After install completes, edit `~/beatrice/.env` (macOS/Linux) or `%USERPROFILE%\beatrice\.env` (Windows) to fill in your API keys, then restart with `cd ~/beatrice && ./start.sh` (or `start.bat` on Windows). The app runs at `http://localhost:4200`.
+
+On Linux, if run as root, the installer registers a systemd service (`beatrice.service`) that auto-starts on boot.
+
+### Prerequisites (Manual Install)
 - Node.js 22+
+- Python 3.11+ with pip and venv
+- Chromium or Chrome (for Playwright/browser-use)
+- Git
 - An Eburon Core API key
 - A Supabase project
 - A Firebase project (for auth)
