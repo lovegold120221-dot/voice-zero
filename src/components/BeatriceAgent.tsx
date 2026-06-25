@@ -1096,6 +1096,7 @@ export function BeatriceAgent({
   const sessionRef = useRef<any>(null);
   const sessionHealthyRef = useRef(false);
   const sessionStartingRef = useRef(false);
+  const sessionClosingRef = useRef(false);
   const sessionIdRef = useRef<string>(crypto.randomUUID());
 
   const audioStreamerRef = useRef<AudioStreamer | null>(null);
@@ -1315,7 +1316,7 @@ export function BeatriceAgent({
 
   const sendTextToLive = (text: string) => {
     const session = sessionRef.current;
-    if (!session || !text.trim() || !isActiveRef.current || !sessionHealthyRef.current) return;
+    if (!session || !text.trim() || !isActiveRef.current || !sessionHealthyRef.current || sessionClosingRef.current) return;
     try {
       if (typeof (session as any).sendRealtimeInput === 'function') {
         const result = (session as any).sendRealtimeInput({ text });
@@ -1335,7 +1336,7 @@ export function BeatriceAgent({
 
   const sendAudioToLive = (base64Data: string) => {
     const session = sessionRef.current;
-    if (!session || !base64Data || !isActiveRef.current || !sessionHealthyRef.current) return;
+    if (!session || !base64Data || !isActiveRef.current || !sessionHealthyRef.current || sessionClosingRef.current) return;
     try {
       if (typeof (session as any).sendRealtimeInput === 'function') {
         const result = (session as any).sendRealtimeInput({
@@ -1357,7 +1358,7 @@ export function BeatriceAgent({
 
   const sendVideoToLive = (base64Data: string) => {
     const session = sessionRef.current;
-    if (!session || !base64Data || !isActiveRef.current || !sessionHealthyRef.current) return;
+    if (!session || !base64Data || !isActiveRef.current || !sessionHealthyRef.current || sessionClosingRef.current) return;
     try {
       if (typeof (session as any).sendRealtimeInput === 'function') {
         (session as any).sendRealtimeInput({
@@ -3996,7 +3997,6 @@ ${historyContext}
                       endTime: { type: Type.STRING, description: "End time (e.g. '2024-12-25T16:00:00')" },
                       description: { type: Type.STRING, description: "Event description or details" },
                       location: { type: Type.STRING, description: "Event location" },
-                      attendees: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of email addresses of attendees" }
                     },
                     required: ["title", "startTime", "endTime"]
                   }
@@ -4354,6 +4354,7 @@ ${historyContext}
         callbacks: {
           onopen: () => {
             console.log("Live session connected.");
+            sessionClosingRef.current = false;
             sessionHealthyRef.current = true;
             setTimeout(() => {
               const reconnectContext = reconnectContextRef.current;
@@ -5925,6 +5926,7 @@ ${historyContext}
           onclose: (e: any) => {
             const reason = e?.reason || 'unknown';
             console.log(`Live session closed: ${reason}`);
+            sessionClosingRef.current = true;
             sessionHealthyRef.current = false;
 
             // Stop audio recorder immediately to prevent sending to closed socket
