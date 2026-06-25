@@ -8,7 +8,10 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   linkWithPopup,
-  reauthenticateWithPopup
+  reauthenticateWithPopup,
+  getRedirectResult,
+  browserLocalPersistence,
+  setPersistence
 } from 'firebase/auth';
 import { Loader2, Sun, Moon } from 'lucide-react';
 import { EntryFlow } from './components/EntryFlow';
@@ -98,6 +101,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Use localStorage persistence so auth survives redirects (avoids sessionStorage issues)
+    setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+    // Handle pending redirect result (from signInWithRedirect fallback)
+    getRedirectResult(auth).then((result) => {
+      if (result?.user) {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const refreshToken = (result as any)._tokenResponse?.oauthRefreshToken;
+        if (credential?.accessToken) {
+          setGoogleToken(credential.accessToken);
+          storeToken(credential.accessToken, result.user.uid, refreshToken);
+        }
+      }
+    }).catch((err) => {
+      console.warn('Redirect result error:', err.code, err.message);
+    });
+
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
 
@@ -163,15 +183,27 @@ export default function App() {
 
       let result;
       const currentUser = auth.currentUser;
-      if (currentUser) {
-        const isGoogleLinked = currentUser.providerData.some(p => p.providerId === 'google.com');
-        if (isGoogleLinked) {
-          result = await reauthenticateWithPopup(currentUser, provider);
+      try {
+        if (currentUser) {
+          const isGoogleLinked = currentUser.providerData.some(p => p.providerId === 'google.com');
+          if (isGoogleLinked) {
+            result = await reauthenticateWithPopup(currentUser, provider);
+          } else {
+            result = await linkWithPopup(currentUser, provider);
+          }
         } else {
-          result = await linkWithPopup(currentUser, provider);
+          result = await signInWithPopup(auth, provider);
         }
-      } else {
-        result = await signInWithPopup(auth, provider);
+      } catch (err: any) {
+        if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request') {
+          throw new Error('The sign-in popup was blocked. Please allow popups for this site and try again.');
+        }
+        if (err.code === 'auth/popup-closed-by-user') {
+          throw new Error('Sign-in was cancelled.');
+        }
+        // If Firebase fell back to redirect (sessionStorage failure), user will be redirected here
+        // The getRedirectResult handler above will catch it on reload
+        throw err;
       }
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const refreshToken = (result as any)._tokenResponse?.oauthRefreshToken;
