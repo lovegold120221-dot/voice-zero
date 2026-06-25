@@ -1145,6 +1145,20 @@ export function BeatriceAgent({
   const daemonResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
 
   const checkLocalDaemon = useCallback(async () => {
+    // Electron: use native IPC — no daemon needed
+    if (typeof (window as any).beatriceDesktop?.health === 'function') {
+      try {
+        const data = await (window as any).beatriceDesktop.health();
+        daemonConnectedRef.current = data.ok === true;
+        setDaemonStatus(data.ok ? 'online' : 'offline');
+        return data;
+      } catch {
+        daemonConnectedRef.current = false;
+        setDaemonStatus('offline');
+        return null;
+      }
+    }
+    // Browser: check daemon on localhost
     try {
       const resp = await fetch(`http://127.0.0.1:${daemonPortRef.current}/health`, {
         signal: AbortSignal.timeout(3000),
@@ -1163,14 +1177,34 @@ export function BeatriceAgent({
   const handleDaemonStartClick = async () => {
     const isMac = navigator.platform?.toLowerCase().includes('mac') ?? false;
     const isWin = navigator.platform?.toLowerCase().includes('win') ?? false;
-    const ext = isMac ? '.command' : isWin ? '.bat' : '.sh';
+
+    if (isMac) {
+      // macOS Gatekeeper blocks downloaded scripts — give a pasteable command
+      const cmd = 'xattr -d com.apple.quarantine ~/Downloads/beatrice-daemon.command 2>/dev/null; chmod +x ~/Downloads/beatrice-daemon.command; ~/Downloads/beatrice-daemon.command';
+      try { await navigator.clipboard.writeText(cmd); } catch {}
+      // Also download the file
+      const macScript = `#!/bin/bash\n\nif ! command -v node &> /dev/null; then\n  echo "Node.js is required. Installing via Homebrew..."\n  if command -v brew &> /dev/null; then brew install node 2>/dev/null; fi\n  if ! command -v node &> /dev/null; then\n    echo "Please install Node.js 22+ from https://nodejs.org"\n    read -p "Press Enter to close..."\n    exit 1\n  fi\nfi\ncd ~/Downloads\nif [ ! -f ~/Downloads/beatrice-local-daemon.mjs ]; then\n  curl -sS -o ~/Downloads/beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\nfi\nchmod +x ~/Downloads/beatrice-local-daemon.mjs\necho "Starting Beatrice Local Daemon..."\nnode ~/Downloads/beatrice-local-daemon.mjs\n`;
+      const blob = new Blob([macScript], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = 'beatrice-daemon.command';
+      document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setDaemonLoading(true);
+      const connected = await pollForDaemon(30, 2000);
+      setDaemonLoading(false);
+      if (daemonResolverRef.current) { daemonResolverRef.current(connected); daemonResolverRef.current = null; }
+      setAwaitingDaemon(false);
+      return;
+    }
+
+    const ext = isWin ? '.bat' : '.sh';
     const filename = `beatrice-daemon${ext}`;
 
-    const script = isMac
-      ? `#!/bin/bash\ncd ~/Downloads\nif [ ! -f ~/Downloads/beatrice-local-daemon.mjs ]; then\n  curl -sS -o ~/Downloads/beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\nfi\nchmod +x ~/Downloads/beatrice-local-daemon.mjs\nnode ~/Downloads/beatrice-local-daemon.mjs\n`
-      : isWin
-        ? `@echo off\ncd /d %USERPROFILE%\\Downloads\nif not exist beatrice-local-daemon.mjs (\n  curl -sS -o beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\n)\nnode beatrice-local-daemon.mjs\npause\n`
-        : `#!/usr/bin/env bash\ncd ~/Downloads\nif [ ! -f ~/Downloads/beatrice-local-daemon.mjs ]; then\n  curl -sS -o ~/Downloads/beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\nfi\nchmod +x ~/Downloads/beatrice-local-daemon.mjs\nnode ~/Downloads/beatrice-local-daemon.mjs\n`;
+    const script = isWin
+      ? `@echo off\ncd /d %USERPROFILE%\\Downloads\nif not exist beatrice-local-daemon.mjs (\n  curl -sS -o beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\n)\nnode beatrice-local-daemon.mjs\npause\n`
+      : `#!/usr/bin/env bash\ncd ~/Downloads\nif [ ! -f ~/Downloads/beatrice-local-daemon.mjs ]; then\n  curl -sS -o ~/Downloads/beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\nfi\nchmod +x ~/Downloads/beatrice-local-daemon.mjs\nnode ~/Downloads/beatrice-local-daemon.mjs\n`;
 
     const blob = new Blob([script], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
@@ -1182,7 +1216,6 @@ export function BeatriceAgent({
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
-    // Poll with loading state, keep modal open
     setDaemonLoading(true);
     const connected = await pollForDaemon(30, 2000);
     setDaemonLoading(false);
@@ -5551,7 +5584,28 @@ ${historyContext}
                         }
                       }
                     } else if (callName === 'local_run_terminal') {
-                      if (!daemonConnectedRef.current) {
+                      const isElectron = typeof (window as any).beatriceDesktop?.runTerminal === 'function';
+                      if (isElectron) {
+                        try {
+                          const command = (call.args as any)?.command;
+                          const cwd = (call.args as any)?.cwd || '';
+                          const timeout = Math.min((call.args as any)?.timeout || 120, 900);
+                          if (!command) { result = { ok: false, error: 'No command provided.' }; }
+                          else {
+                            const data = await (window as any).beatriceDesktop.runTerminal(command, cwd, timeout);
+                            result = {
+                              ok: data.ok && data.exitCode === 0,
+                              stdout: data.stdout,
+                              stderr: data.stderr,
+                              exitCode: data.exitCode,
+                              error: data.error || (data.exitCode !== 0 ? `Command exited with code ${data.exitCode}` : undefined),
+                              command,
+                            };
+                          }
+                        } catch (e: any) {
+                          result = { ok: false, error: e.message || 'Failed to run command' };
+                        }
+                      } else if (!daemonConnectedRef.current) {
                         result = { ok: false, error: 'Local folder is not connected yet. Ask the user to connect their folder first (use local_daemon_status for instructions).' };
                       } else {
                         try {
@@ -5584,7 +5638,15 @@ ${historyContext}
                         }
                       }
                     } else if (callName === 'local_setup_status') {
-                      if (!daemonConnectedRef.current) {
+                      const isElectron = typeof (window as any).beatriceDesktop?.setupWorkspace === 'function';
+                      if (isElectron) {
+                        try {
+                          const data = await (window as any).beatriceDesktop.setupWorkspace();
+                          result = { ok: true, ...data, message: data.ok ? 'Workspace is fully set up!' : 'Some components need installation. Use local_setup_workspace to install everything.' };
+                        } catch (e: any) {
+                          result = { ok: false, error: e.message || 'Failed to check setup status' };
+                        }
+                      } else if (!daemonConnectedRef.current) {
                         result = { ok: false, error: 'Local folder is not connected yet. Ask the user to connect their folder first.' };
                       } else {
                         try {
@@ -5598,7 +5660,15 @@ ${historyContext}
                         }
                       }
                     } else if (callName === 'local_setup_workspace') {
-                      if (!daemonConnectedRef.current) {
+                      const isElectron = typeof (window as any).beatriceDesktop?.setupWorkspace === 'function';
+                      if (isElectron) {
+                        try {
+                          const data = await (window as any).beatriceDesktop.setupWorkspace();
+                          result = { ok: data.ok, message: data.ok ? 'Workspace is ready!' : 'See results for details.', ...data };
+                        } catch (e: any) {
+                          result = { ok: false, error: e.message || 'Failed' };
+                        }
+                      } else if (!daemonConnectedRef.current) {
                         result = { ok: false, error: 'Local folder is not connected yet. Ask the user to connect their folder first (use local_daemon_status for instructions).' };
                       } else {
                         try {
@@ -6508,9 +6578,13 @@ ${historyContext}
                 <div className="flex justify-center mb-4">
                   <Loader2 className="w-8 h-8 text-[#10b981] animate-spin" />
                 </div>
-                <p className="text-sm text-[#64748b] mb-4">Waiting for the connection. Open the downloaded file from your browser's downloads bar — a terminal will appear.</p>
+                <p className="text-sm text-[#64748b] mb-4">{(() => { const p = navigator.platform?.toLowerCase() ?? ''; return p.includes('mac') ? 'The command has been copied. Paste it in Terminal and press Enter.' : 'Waiting for the connection. Open the downloaded file from your browser\'s downloads bar.'; })()}</p>
                 <div className="bg-[#0f1117] border border-[#25262b] rounded-xl p-3 mb-4 text-left">
-                  <p className="text-xs text-[#f59e0b]">If the file doesn't open, check your Downloads folder for <code className="text-green-400">beatrice-daemon{(() => { const p = navigator.platform?.toLowerCase() ?? ''; return p.includes('mac') ? '.command' : p.includes('win') ? '.bat' : '.sh'; })()}</code> and double-click it.</p>
+                  {(() => { const p = navigator.platform?.toLowerCase() ?? ''; return p.includes('mac') ? (
+                    <code className="text-xs text-green-400 break-all">xattr -d com.apple.quarantine ~/Downloads/beatrice-daemon.command && chmod +x ~/Downloads/beatrice-daemon.command && ~/Downloads/beatrice-daemon.command</code>
+                  ) : (
+                    <p className="text-xs text-[#f59e0b]">If the file doesn't open, check your Downloads folder for <code className="text-green-400 text-xs">beatrice-daemon{(() => { const p2 = navigator.platform?.toLowerCase() ?? ''; return p2.includes('mac') ? '.command' : p2.includes('win') ? '.bat' : '.sh'; })()}</code> and double-click it.</p>
+                  )})()}
                 </div>
                 <button
                   onClick={() => { setDaemonLoading(false); setAwaitingDaemon(false); if (daemonResolverRef.current) { daemonResolverRef.current(false); daemonResolverRef.current = null; } }}
@@ -6524,7 +6598,7 @@ ${historyContext}
                   onClick={handleDaemonStartClick}
                   className="w-full px-5 py-3 rounded-xl text-sm font-bold text-black bg-[#10b981] hover:bg-[#059669] transition-colors mb-3"
                 >Continue</button>
-                <p className="text-xs text-[#64748b] mb-4">After clicking, open the downloaded file from your browser's downloads. A terminal will open — keep it running.</p>
+                <p className="text-xs text-[#64748b] mb-4">After clicking, open the downloaded file from your browser's downloads. {(() => { const p = navigator.platform?.toLowerCase() ?? ''; return p.includes('mac') ? 'The command has been copied to your clipboard — paste it in Terminal if the file won\'t open.' : 'A terminal will open — keep it running.'; })()}</p>
                 <button
                   onClick={() => { setAwaitingDaemon(false); if (daemonResolverRef.current) { daemonResolverRef.current(false); daemonResolverRef.current = null; } }}
                   className="px-5 py-2.5 rounded-xl text-sm text-[#64748b] border border-[#1f2025] hover:bg-[#25262b] transition-colors"

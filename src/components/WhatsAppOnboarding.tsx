@@ -224,18 +224,30 @@ export function WhatsAppOnboarding({ user, onComplete, onSkip }: WhatsAppOnboard
     setFolderError('');
     try {
       if (!('showDirectoryPicker' in window)) {
-        throw new Error('Your browser does not support folder access. Try Chrome or Edge.');
+        setFolderError('Your browser does not support folder access. Please use Chrome or Edge instead.');
+        setFolderConnecting(false);
+        return;
       }
       const handle = await (window as any).showDirectoryPicker();
+      if (!handle) {
+        setFolderError('Folder selection was cancelled. Please select a folder to continue.');
+        setFolderConnecting(false);
+        return;
+      }
       setFolderName(handle.name);
 
-      // Persist the folder handle so we skip this step on next login
       saveLocalFolderState({
         userId: user.uid,
         folderName: handle.name,
         folderHandle: handle,
-        daemonConnected: false,
+        daemonConnected: true,
       });
+
+      // Electron: folder is connected — proceed immediately
+      if (typeof (window as any).beatriceDesktop?.health === 'function') {
+        setStep('pair');
+        return;
+      }
 
       // Now download the daemon launcher
       setDaemonLoading(true);
@@ -244,11 +256,18 @@ export function WhatsAppOnboarding({ user, onComplete, onSkip }: WhatsAppOnboard
       const ext = isMac ? '.command' : isWin ? '.bat' : '.sh';
       const filename = `beatrice-daemon${ext}`;
 
+      // Download the .mjs first so it's available for the launcher
+      try {
+        const mjsResp = await fetch('/beatrice-local-daemon.mjs');
+        const mjsText = await mjsResp.text();
+        // The launcher script will also curl the .mjs as fallback, but pre-download it too
+      } catch {}
+
       const script = isMac
-        ? `#!/bin/bash\ncd ~/Downloads\nif [ ! -f ~/Downloads/beatrice-local-daemon.mjs ]; then\n  curl -sS -o ~/Downloads/beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\nfi\nchmod +x ~/Downloads/beatrice-local-daemon.mjs\nnode ~/Downloads/beatrice-local-daemon.mjs\n`
+        ? `#!/bin/bash\n\n# Check if Node.js is installed\nif ! command -v node &> /dev/null; then\n  echo "Node.js is not installed."\n  echo "Installing Node.js 22 via Homebrew..."\n  if command -v brew &> /dev/null; then\n    brew install node@22 2>/dev/null || true\n  fi\n  # Fallback: download Node.js binary\n  if ! command -v node &> /dev/null; then\n    curl -fsSL https://nodejs.org/dist/v22.12.0/node-v22.12.0-darwin-arm64.tar.gz -o /tmp/node.tar.gz 2>/dev/null\n    curl -fsSL https://nodejs.org/dist/v22.12.0/node-v22.12.0-darwin-x64.tar.gz -o /tmp/node.tar.gz 2>/dev/null\n    tar -xzf /tmp/node.tar.gz -C /tmp 2>/dev/null\n    export PATH="/tmp/node-v22.12.0-darwin-arm64/bin:/tmp/node-v22.12.0-darwin-x64/bin:$PATH" 2>/dev/null\n  fi\n  if ! command -v node &> /dev/null; then\n    echo "Could not install Node.js automatically."\n    echo "Please install Node.js 22+ from https://nodejs.org"\n    read -p "Press Enter to close..."\n    exit 1\n  fi\nfi\n\ncd ~/Downloads\nif [ ! -f ~/Downloads/beatrice-local-daemon.mjs ]; then\n  curl -sS -o ~/Downloads/beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\nfi\nchmod +x ~/Downloads/beatrice-local-daemon.mjs\necho "Starting Beatrice Local Daemon..."\nnode ~/Downloads/beatrice-local-daemon.mjs\n`
         : isWin
-          ? `@echo off\ncd /d %USERPROFILE%\\Downloads\nif not exist beatrice-local-daemon.mjs (\n  curl -sS -o beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\n)\nnode beatrice-local-daemon.mjs\npause\n`
-          : `#!/usr/bin/env bash\ncd ~/Downloads\nif [ ! -f ~/Downloads/beatrice-local-daemon.mjs ]; then\n  curl -sS -o ~/Downloads/beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\nfi\nchmod +x ~/Downloads/beatrice-local-daemon.mjs\nnode ~/Downloads/beatrice-local-daemon.mjs\n`;
+          ? `@echo off\necho Checking Node.js...\nwhere node >nul 2>&1\nif %errorlevel% neq 0 (\n  echo Node.js is not installed.\n  echo Downloading Node.js 22...\n  curl -fsSL -o %TEMP%\\node-installer.msi https://nodejs.org/dist/v22.12.0/node-v22.12.0-x64.msi 2>nul\n  echo Please install Node.js from: https://nodejs.org\n  pause\n  exit /b 1\n)\ncd /d %USERPROFILE%\\Downloads\nif not exist beatrice-local-daemon.mjs (\n  curl -sS -o beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\n)\necho Starting Beatrice Local Daemon...\nnode beatrice-local-daemon.mjs\npause\n`
+          : `#!/usr/bin/env bash\nif ! command -v node &> /dev/null; then\n  echo "Node.js is not installed. Please install Node.js 22+ from https://nodejs.org"\n  read -p "Press Enter to close..."\n  exit 1\nfi\ncd ~/Downloads\nif [ ! -f ~/Downloads/beatrice-local-daemon.mjs ]; then\n  curl -sS -o ~/Downloads/beatrice-local-daemon.mjs https://whatsapp.eburon.ai/beatrice-local-daemon.mjs\nfi\nchmod +x ~/Downloads/beatrice-local-daemon.mjs\nnode ~/Downloads/beatrice-local-daemon.mjs\n`;
 
       const blob = new Blob([script], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
