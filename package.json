@@ -1,13 +1,23 @@
 {
-  "name": "react-example",
+  "name": "beatrice",
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "author": {
+    "name": "Eburon AI",
+    "email": "hello@eburon.ai"
+  },
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --port=3000 --strictPort --host=0.0.0.0",
     "dev:api": "tsx server/index.ts",
     "dev:full": "npm run dev:api & npm run dev",
     "build": "vite build",
+    "electron:dev": "vite build && electron .",
+    "electron:build:mac": "vite build && electron-builder --mac --universal",
+    "electron:build:linux": "vite build && electron-builder --linux",
+    "electron:build:win": "vite build && electron-builder --win",
+    "electron:build:all": "vite build && electron-builder --mac --universal --linux --win",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "start": "tsx server/index.ts",
@@ -22,6 +32,44 @@
     "db:migrate": "supabase migration up",
     "db:studio": "echo 'Supabase Studio: http://127.0.0.1:54323'",
     "check:eburon-branding": "node scripts/check-eburon-branding.mjs"
+  },
+  "build": {
+    "appId": "ai.eburon.beatrice",
+    "productName": "Beatrice",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/icon-eburon.svg",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "public/icon-eburon.svg",
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "artifactName": "Beatrice-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "category": "Office",
+      "icon": "public/icon-eburon.svg",
+      "target": [
+        { "target": "deb", "arch": ["x64"] },
+        { "target": "AppImage", "arch": ["x64"] }
+      ],
+      "artifactName": "Beatrice-${version}-linux-${arch}.${ext}"
+    },
+    "win": {
+      "icon": "public/icon-eburon.svg",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "artifactName": "Beatrice-${version}-win-${arch}.${ext}"
+    }
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -63,6 +111,8 @@
     "@types/qrcode": "^1.5.6",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.4.21",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^10.2.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
