@@ -5924,6 +5924,7 @@ ${historyContext}
           },
 
           onclose: (e: any) => {
+            sessionClosingRef.current = true;
             const reason = e?.reason || 'unknown';
             console.log(`Live session closed: ${reason}`);
             sessionClosingRef.current = true;
@@ -5979,6 +5980,7 @@ ${historyContext}
       });
 
       sessionRef.current = session;
+      sessionClosingRef.current = false;
 
       // Find and wrap the underlying WebSocket to prevent CLOSING/CLOSED send errors
       let _webSocket: any = null;
