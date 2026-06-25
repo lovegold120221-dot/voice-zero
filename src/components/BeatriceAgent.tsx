@@ -1020,6 +1020,7 @@ export function BeatriceAgent({
   const [customPrompt, setCustomPrompt] = useState("");
   const [selectedVoice, setSelectedVoice] = useState("Aoede");
   const [contextSize, setContextSize] = useState(20);
+  const [websiteUrl, setWebsiteUrl] = useState("");
   const [userTitle, setUserTitle] = useState(() => {
     try { return localStorage.getItem('beatrice_userTitle') || 'Boss'; } catch { return 'Boss'; }
   });
@@ -2338,6 +2339,7 @@ export function BeatriceAgent({
         if (settingsData.ambient_enabled !== undefined) { setAmbientEnabled(settingsData.ambient_enabled); try { localStorage.setItem('beatrice_ambient_enabled', String(settingsData.ambient_enabled)); } catch {} }
         if (settingsData.ambient_volume !== undefined) { setAmbientVolume(settingsData.ambient_volume); try { localStorage.setItem('beatrice_ambient_volume', String(settingsData.ambient_volume)); } catch {} }
         if (settingsData.censorship_enabled !== undefined) { setCensorshipEnabled(settingsData.censorship_enabled); try { localStorage.setItem('beatrice_censorship', String(settingsData.censorship_enabled)); } catch {} }
+        if (settingsData.website_url !== undefined) setWebsiteUrl(settingsData.website_url);
       }
 
       const settingsChannel = supabase
@@ -2357,6 +2359,7 @@ export function BeatriceAgent({
           if (s.ambient_enabled !== undefined) { setAmbientEnabled(s.ambient_enabled); try { localStorage.setItem('beatrice_ambient_enabled', String(s.ambient_enabled)); } catch {} }
           if (s.ambient_volume !== undefined) { setAmbientVolume(s.ambient_volume); try { localStorage.setItem('beatrice_ambient_volume', String(s.ambient_volume)); } catch {} }
           if (s.censorship_enabled !== undefined) { setCensorshipEnabled(s.censorship_enabled); try { localStorage.setItem('beatrice_censorship', String(s.censorship_enabled)); } catch {} }
+          if (s.website_url !== undefined) setWebsiteUrl(s.website_url);
         })
         .subscribe();
 
@@ -2519,6 +2522,7 @@ export function BeatriceAgent({
           ambient_enabled: ambientEnabled,
           ambient_volume: ambientVolume,
           censorship_enabled: censorshipEnabled,
+          website_url: websiteUrl || '',
           whatsapp_permissions: waPermissions,
           whatsapp_paired: waStatus === 'paired',
           whatsapp_phone: waPhone || null,
@@ -2682,6 +2686,7 @@ export function BeatriceAgent({
       .slice(-40);
 
     let knowledgeBaseContext = "";
+    let userWebsiteUrl = "";
     try {
       const files = await listKnowledgeFiles(user.uid);
       const contents = await Promise.all(
@@ -2691,7 +2696,7 @@ export function BeatriceAgent({
 
       const { data: settings } = await supabase
         .from('user_settings')
-        .select('knowledge_domains')
+        .select('knowledge_domains, website_url')
         .eq('user_id', user.uid)
         .maybeSingle();
 
@@ -2703,6 +2708,8 @@ export function BeatriceAgent({
           ? `${knowledgeBaseContext}\n\n${domainContext}`
           : domainContext;
       }
+
+      userWebsiteUrl = settings?.website_url || '';
 
       if (knowledgeBaseContext) {
         knowledgeBaseContext = `\nUSER KNOWLEDGE BASE (custom files and reference URLs uploaded by the user — use this to personalize responses):\n${knowledgeBaseContext}`;
@@ -2878,7 +2885,7 @@ I have a comprehensive set of skills at my disposal. Every task the user gives m
 - For 3D apps, games, and visualizations: use Three.js loaded from CDN
 - Generated apps are served live at a unique URL immediately
 - I can also run terminal commands, manage files, install packages, run git operations, and automate workflows
-- **App URL pattern:** https://whatsapp.eburon.ai/beatrice-workspace/{safe-user-id}/{appName}/
+- **App URL pattern:** ${userWebsiteUrl || 'https://whatsapp.eburon.ai'}/beatrice-workspace/{safe-user-id}/{appName}/
 - Trigger: "build me an app", "create a website", "make a tool", "run this command", "write a script", "automate this"
 
 **LOCAL FILESYSTEM SKILLS** -- Browse, read, and write files on the user's local computer
@@ -3689,7 +3696,7 @@ ${historyContext}
                     type: Type.OBJECT,
                     properties: {
                       task: { type: Type.STRING, description: "Precise terminal task to perform. Include expected output or constraints. For app generation, include the full path where files should be saved." },
-                      appName: { type: Type.STRING, description: "Short URL-safe name for the generated app (e.g. 'todo-list', 'calculator'). Required when building apps. The app will be served live at https://whatsapp.eburon.ai/beatrice-workspace/{userId}/{appName}/." },
+                      appName: { type: Type.STRING, description: "Short URL-safe name for the generated app (e.g. 'todo-list', 'calculator'). Required when building apps. The app will be served live at a unique URL under /beatrice-workspace/{userId}/{appName}/." },
                       skill: { type: Type.STRING, description: "Optional skill specialization to request." },
                       timeout: { type: Type.NUMBER, description: "Maximum execution time in seconds (10-300, default 60). Use higher values for app generation." }
                     },
@@ -4543,6 +4550,7 @@ ${historyContext}
                             appName: args.appName || '',
                             skill: args.skill || '',
                             timeout: args.timeout || 60,
+                            websiteUrl: websiteUrl || '',
                           }),
                         });
                         const data = await resp.json();
@@ -5488,6 +5496,8 @@ ${historyContext}
         isSaving={isSaving}
         censorshipEnabled={censorshipEnabled}
         setCensorshipEnabled={setCensorshipEnabled}
+        websiteUrl={websiteUrl}
+        setWebsiteUrl={setWebsiteUrl}
       />
     );
   }

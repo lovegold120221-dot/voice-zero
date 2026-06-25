@@ -917,10 +917,11 @@ function sanitizePathSegment(segment: string): string {
   return segment.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'unnamed';
 }
 
-function buildAppUrl(userId: string, appName: string): string {
+function buildAppUrl(userId: string, appName: string, customBaseUrl?: string): string {
   const safeUser = sanitizePathSegment(userId);
   const safeApp = sanitizePathSegment(appName);
-  return `${BEATRICE_PUBLIC_URL}/beatrice-workspace/${safeUser}/${safeApp}/`;
+  const baseUrl = customBaseUrl || BEATRICE_PUBLIC_URL;
+  return `${baseUrl}/beatrice-workspace/${safeUser}/${safeApp}/`;
 }
 
 function buildWorkspacePath(userId: string, appName: string): string {
@@ -1138,7 +1139,7 @@ async function enqueueOpenCodeTerminalTask(params: {
 
 app.post('/api/terminal/open-skills', async (req, res) => {
   try {
-    const { task, skill, timeout, userId, appName } = req.body || {};
+    const { task, skill, timeout, userId, appName, websiteUrl } = req.body || {};
     const safeTask = String(task || '').trim();
     if (!safeTask) {
       res.status(400).json({ ok: false, error: 'task is required' });
@@ -1147,8 +1148,9 @@ app.post('/api/terminal/open-skills', async (req, res) => {
 
     const safeAppName = String(appName || '').trim();
     const safeUserId = String(userId || '').trim();
+    const customBaseUrl = String(websiteUrl || '').trim() || undefined;
     const workspacePath = safeAppName && safeUserId ? buildWorkspacePath(safeUserId, safeAppName) : undefined;
-    const appUrl = safeAppName && safeUserId ? buildAppUrl(safeUserId, safeAppName) : undefined;
+    const appUrl = safeAppName && safeUserId ? buildAppUrl(safeUserId, safeAppName, customBaseUrl) : undefined;
 
     const result = await enqueueOpenCodeTerminalTask({
       task: safeTask,

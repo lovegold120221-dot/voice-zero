@@ -38,6 +38,7 @@ ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS ambient_volume INTEGER DEFAUL
 ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS censorship_enabled BOOLEAN DEFAULT true;
 ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS website_url TEXT DEFAULT '';
 
 -- Ensure user_id is the primary key (no-op if already set)
 DO $$ BEGIN

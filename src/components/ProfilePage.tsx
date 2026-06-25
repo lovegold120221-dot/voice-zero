@@ -42,6 +42,8 @@ interface ProfilePageProps {
   isSaving: boolean;
   censorshipEnabled: boolean;
   setCensorshipEnabled: (v: boolean) => void;
+  websiteUrl: string;
+  setWebsiteUrl: (v: string) => void;
 }
 
 const LS_KEY = 'beatrice_knowledge_domains';
@@ -78,6 +80,8 @@ export function ProfilePage({
   saveSettings,
   censorshipEnabled,
   setCensorshipEnabled,
+  websiteUrl,
+  setWebsiteUrl,
   isSaving
 }: ProfilePageProps) {
   const user = auth.currentUser!;
@@ -444,6 +448,37 @@ export function ProfilePage({
           >
             {savingDomains ? <Loader2 className="w-5 h-5 animate-spin text-[#d0a78b]" /> : <Check className="w-5 h-5 text-[#d0a78b]" />}
             <span className="text-[15px] font-['SF_Pro_Text',system-ui,sans-serif] font-semibold text-[#d0a78b]">Save Domains to Cloud</span>
+          </button>
+        </section>
+
+        {/* Custom Website URL */}
+        <section>
+          <div className="px-4 mb-2 flex items-baseline justify-between">
+            <h2 className="text-[13px] uppercase tracking-wide text-zinc-500 font-medium">Website URL</h2>
+          </div>
+          <div className="bg-[#1C1C1E] rounded-[20px] overflow-hidden">
+            <div className="p-4 border-b border-white/5">
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={websiteUrl}
+                  onChange={e => setWebsiteUrl(e.target.value)}
+                  placeholder="https://your-custom-domain.com"
+                  className="flex-1 bg-transparent text-[15px] text-white focus:outline-none placeholder-zinc-500"
+                />
+              </div>
+              <p className="text-[12px] text-zinc-500 mt-2 leading-relaxed">
+                Custom domain for serving generated apps. Leave empty to use the default domain.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => saveSettings({ onSuccess: () => setSuccess('Website URL saved'), onError: (msg) => setError(msg) })}
+            disabled={isSaving}
+            className="w-full mt-3 p-4 bg-white/[0.03] backdrop-blur-2xl border border-white/[0.06] rounded-[20px] text-center active:bg-white/[0.06] transition-all flex items-center justify-center gap-2"
+          >
+            {isSaving ? <Loader2 className="w-5 h-5 animate-spin text-[#d0a78b]" /> : <Check className="w-5 h-5 text-[#d0a78b]" />}
+            <span className="text-[15px] font-['SF_Pro_Text',system-ui,sans-serif] font-semibold text-[#d0a78b]">Save Website URL</span>
           </button>
         </section>
 

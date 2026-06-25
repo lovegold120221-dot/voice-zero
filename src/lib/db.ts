@@ -20,6 +20,7 @@ export interface UserSettings {
   whatsappPhone?: string | null;
   whatsappPermissions?: any;
   knowledgeDomains?: string[];
+  websiteUrl?: string;
   updatedAt?: string;
 }
 
