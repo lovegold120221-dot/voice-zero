@@ -3954,7 +3954,7 @@ ${historyContext}
                       endTime: { type: Type.STRING, description: "End time (e.g. '2024-12-25T16:00:00')" },
                       description: { type: Type.STRING, description: "Event description or details" },
                       location: { type: Type.STRING, description: "Event location" },
-                      attendees: { type: Type.ARRAY, description: "List of email addresses of attendees" }
+                      attendees: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of email addresses of attendees" }
                     },
                     required: ["title", "startTime", "endTime"]
                   }
