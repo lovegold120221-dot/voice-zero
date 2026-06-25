@@ -5982,6 +5982,32 @@ ${historyContext}
 
       sessionRef.current = session;
 
+      // Find and wrap the underlying WebSocket to prevent CLOSING/CLOSED send errors
+      let _webSocket: any = null;
+      const _findWS = (obj: any, depth = 0): any => {
+        if (!obj || depth > 5 || _webSocket) return;
+        try {
+          for (const key of Object.keys(obj)) {
+            const val = obj[key];
+            if (val && typeof val === 'object') {
+              if (val.readyState !== undefined && typeof val.send === 'function') {
+                _webSocket = val;
+                return;
+              }
+              _findWS(val, depth + 1);
+            }
+          }
+        } catch {}
+      };
+      _findWS(session);
+      if (_webSocket) {
+        const _origWSSend = _webSocket.send.bind(_webSocket);
+        _webSocket.send = function(data: any) {
+          if (_webSocket.readyState !== 1) return; // 1 = OPEN
+          return _origWSSend(data);
+        };
+      }
+
       // Wrap session sendRealtimeInput to guard against sending to closing WebSocket
       const originalSendRI = (session as any).sendRealtimeInput;
       if (typeof originalSendRI === 'function') {
