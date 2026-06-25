@@ -905,6 +905,7 @@ const OPEN_TERMINAL_MAX_OUTPUT = 24_000;
 
 const BEATRICE_WORKSPACE_DIR = process.env.BEATRICE_WORKSPACE_DIR || '/data/beatrice-workspace';
 const BEATRICE_PUBLIC_URL = process.env.BEATRICE_PUBLIC_URL || 'https://whatsapp.eburon.ai';
+const SANDBOX_ARTIFACTS_DIR = path.join(BEATRICE_WORKSPACE_DIR, 'sandbox');
 
 function ensureBeatricedDir(dir: string): void {
   if (!fs.existsSync(dir)) {
@@ -932,6 +933,7 @@ let openTerminalQueue: Promise<void> = Promise.resolve();
 
 // ── Beatrice Workspace: serve AI-generated apps ──
 ensureBeatricedDir(BEATRICE_WORKSPACE_DIR);
+ensureBeatricedDir(SANDBOX_ARTIFACTS_DIR);
 app.use('/beatrice-workspace', express.static(BEATRICE_WORKSPACE_DIR, {
   extensions: ['html'],
   index: 'index.html',
@@ -1863,9 +1865,22 @@ app.post('/api/sandbox/run', async (req, res) => {
     setTaskProgress(task, 'done', { agent: agentUsed });
     setTimeout(() => taskProgress.delete(task), 60000);
 
+    let artifactUrl = null;
+    if (artifactTypes.has(safeType)) {
+      try {
+        const filename = `artifact_${task}.html`;
+        const fullPath = path.join(SANDBOX_ARTIFACTS_DIR, filename);
+        fs.writeFileSync(fullPath, resultText);
+        artifactUrl = `/beatrice-workspace/sandbox/${filename}`;
+      } catch (err) {
+        console.error('Failed to save sandbox artifact:', err);
+      }
+    }
+
     res.json({
       ok: true,
       result: finalResult,
+      url: artifactUrl,
       truncated,
       task_type: safeType,
       agent: agentUsed,

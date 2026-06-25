@@ -13,6 +13,8 @@ import {
 } from '../lib/supabaseStorage';
 import { listOutputs, deleteOutput, type WorkspaceOutput } from '../lib/workspace';
 import { LANGUAGES } from '../constants';
+import { getEnv } from '../lib/env';
+import { LocalFolderPanel } from './LocalFolderPanel';
 
 const VOICE_ALIASES = [
   { id: 'Aoede', name: 'Female 1' },
@@ -445,6 +447,15 @@ export function ProfilePage({
           </button>
         </section>
 
+        {/* Local Folder Sync */}
+        <section>
+          <div className="px-4 mb-2 flex items-baseline justify-between">
+            <h2 className="text-[13px] uppercase tracking-wide text-zinc-500 font-medium">Local folder</h2>
+            <span className="text-[11px] text-zinc-600">mirror with your device</span>
+          </div>
+          <LocalFolderPanel />
+        </section>
+
         {/* Workspace Section */}
         <section>
           <div className="px-4 mb-2 flex items-baseline justify-between">
@@ -693,21 +704,28 @@ export function ProfilePage({
 
       </div>
 
-      {previewItem && previewItem.textContent && (
+      {previewItem && (previewItem.textContent || previewItem.url) && (
         <div className="fixed inset-0 z-[200] bg-[var(--bg-base)] flex flex-col">
           <header className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)] bg-[var(--bg-glass)] shrink-0">
             <span className="text-[13px] font-semibold truncate">{previewItem.title}</span>
             <div className="flex-1" />
             <button
               onClick={() => {
-                const blob = new Blob([previewItem.textContent!], { type: previewItem.mimeType });
-                const url = URL.createObjectURL(blob);
-                navigator.clipboard.writeText(url);
-                setCopiedUrl(true);
-                setTimeout(() => setCopiedUrl(false), 2000);
+                let urlToCopy = '';
+                if (previewItem.url) {
+                  urlToCopy = previewItem.url.startsWith('/') ? `${getEnv('VITE_BACKEND_URL') || window.location.origin}${previewItem.url}` : previewItem.url;
+                } else if (previewItem.textContent) {
+                  const blob = new Blob([previewItem.textContent], { type: previewItem.mimeType });
+                  urlToCopy = URL.createObjectURL(blob);
+                }
+                if (urlToCopy) {
+                  navigator.clipboard.writeText(urlToCopy);
+                  setCopiedUrl(true);
+                  setTimeout(() => setCopiedUrl(false), 2000);
+                }
               }}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--border)] text-xs font-bold hover:bg-[var(--bg-glass-hover)] transition-all"
-              title="Copy blob URL"
+              title="Copy URL"
             >
               {copiedUrl ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
               {copiedUrl ? 'Copied!' : 'Copy URL'}
@@ -722,9 +740,10 @@ export function ProfilePage({
           </header>
           <div className="flex-1 bg-white relative overflow-hidden">
             <iframe
-              srcDoc={previewItem.mimeType === 'text/html' ? previewItem.textContent : `<pre style="font-family:monospace;white-space:pre-wrap;padding:20px;font-size:14px;color:#1f2937">${previewItem.textContent.replace(/</g, '&lt;')}</pre>`}
+              src={previewItem.url ? (previewItem.url.startsWith('/') ? `${getEnv('VITE_BACKEND_URL') || ''}${previewItem.url}` : previewItem.url) : undefined}
+              srcDoc={!previewItem.url ? (previewItem.mimeType === 'text/html' ? previewItem.textContent : `<pre style="font-family:monospace;white-space:pre-wrap;padding:20px;font-size:14px;color:#1f2937">${previewItem.textContent.replace(/</g, '&lt;')}</pre>`) : undefined}
               className="w-full h-full border-0"
-              sandbox="allow-scripts"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
               title={previewItem.title}
             />
           </div>

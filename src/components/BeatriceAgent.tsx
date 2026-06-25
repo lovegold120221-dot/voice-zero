@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { auth } from '../firebase';
 import { User } from 'firebase/auth';
 import { supabase, handleDbError } from '../lib/supabase';
-import { LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
+import { LiveServerMessage, Modality, Type, FunctionDeclaration, getVoiceClient } from '../lib/voiceSession';
 import { AudioRecorder, AudioStreamer } from '../lib/audio';
 import { listKnowledgeFiles, fetchKnowledgeFileContent } from '../lib/supabaseStorage';
 import { Loader2, Mic, Square, Check, Settings, X, Save, Video, MessageSquare, Monitor, ChevronDown, Moon, Sun, Mail, Calendar, ListChecks, HardDrive, Users, FileText, MapPin, Building2, Shield, Calculator, Languages, Heart, Scale, Train, Globe, FileOutput, Network, Zap, Search, GitBranch, Cpu, Fingerprint, Terminal } from 'lucide-react';
@@ -33,6 +33,8 @@ import {
 // ─── Eburon provider references ──
 const _VOICE_MODEL = 'eburon_realtime_voice';
 const _TEXT_MODEL = 'eburon_text';
+// Eburon-aliased baseline for the live runtime — used in user-visible logs.
+const _SANDBOX_MODEL_ALIAS = 'eburon_sandbox_worker';
 const _SDK = ['Goo', 'gle', 'Gen', 'AI'].join('');
 
 // ─── Time formatter for relative timestamps ──
@@ -724,9 +726,7 @@ IMPORTANT: When you speak about ANY of this content, use "we", "us", "our", or "
 - He oversees development of this very app — Eburon AI Beatrice — and our AI voice pipeline integration.
 `;
 
-const getEnv = (key: string) => {
-  return ((import.meta as any).env?.[key] || (globalThis as any).process?.env?.[key] || '') as string;
-};
+import { getEnv } from '../lib/env';
 
 let _eburonSessionInfo: { token: string; modelId?: string } | null = null;
 
@@ -1007,7 +1007,7 @@ export function BeatriceAgent({
 
   const [showSettings, setShowSettings] = useState(false);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
-  const [activeDocument, setActiveDocument] = useState<{ title: string, content: string, fileType: string } | null>(null);
+  const [activeDocument, setActiveDocument] = useState<{ title: string, content: string, fileType: string, url?: string } | null>(null);
   const [pendingWhatsAppMessage, setPendingWhatsAppMessage] = useState<{
     to: string;
     name: string;
@@ -1857,17 +1857,23 @@ export function BeatriceAgent({
       </div>
     `;
 
+    const backendUrl = getEnv('VITE_BACKEND_URL') || '';
+    const absoluteUrl = result?.url ? (result.url.startsWith('/') ? `${backendUrl}${result.url}` : result.url) : undefined;
+
     setActiveDocument({
       title: sandboxTitle,
       content: wrapInSandbox(sandboxTitle, contentWithMetadata),
-      fileType: 'html'
+      fileType: 'html',
+      url: absoluteUrl
     });
     setShowDocumentViewer(true);
   };
 
-  const setGeneratedDocumentTask = (id: string, title: string, content: string, status: 'working' | 'done' | 'error' = 'done') => {
+  const setGeneratedDocumentTask = (id: string, title: string, content: string, status: 'working' | 'done' | 'error' = 'done', url?: string) => {
     if (status === 'done') {
-      setActiveDocument({ title, content, fileType: 'html' });
+      const backendUrl = getEnv('VITE_BACKEND_URL') || '';
+      const absoluteUrl = url ? (url.startsWith('/') ? `${backendUrl}${url}` : url) : undefined;
+      setActiveDocument({ title, content, fileType: 'html', url: absoluteUrl });
       setShowDocumentViewer(true);
     } else if (status === 'error') {
       setActiveDocument({ title, content: 'Generation failed.', fileType: 'txt' });
@@ -4436,7 +4442,7 @@ ${historyContext}
                         });
                         const data = await resp.json();
                         if (!resp.ok) throw new Error(data.error || `Sandbox error (${resp.status})`);
-                        result = { ok: true, result: data.result, agent: data.agent || 'backend' };
+                        result = { ok: true, result: data.result, url: data.url, agent: data.agent || 'backend' };
                       } catch (e: any) {
                         result = { ok: false, error: e.message || 'Sandbox task failed' };
                       }
@@ -4737,7 +4743,7 @@ ${historyContext}
                         let html = data.result;
                         html = extractHtmlArtifact(html);
 
-                        setGeneratedDocumentTask(generationTaskId, title, html, 'done');
+                        setGeneratedDocumentTask(generationTaskId, title, html, 'done', data.url);
 
                         const wsOutput = {
                           id: `doc_${generationTaskId}`,
@@ -4745,6 +4751,7 @@ ${historyContext}
                           type: 'document' as const,
                           title,
                           textContent: html,
+                          url: data.url,
                           mimeType: 'text/html',
                           fileSize: new Blob([html]).size,
                           createdAt: new Date().toISOString(),
@@ -4763,6 +4770,7 @@ ${historyContext}
                           ok: true,
                           title,
                           content: html,
+                          url: data.url,
                           agent: data.agent || 'backend',
                         };
                       } catch (e: any) {
@@ -4805,13 +4813,14 @@ ${historyContext}
                         let html = data.result;
                         html = extractHtmlArtifact(html);
 
-                        setGeneratedDocumentTask(generationTaskId, title, html, 'done');
+                        setGeneratedDocumentTask(generationTaskId, title, html, 'done', data.url);
                         const wsOutput = {
                           id: `web_${generationTaskId}`,
                           userId: user.uid,
                           type: 'document' as const,
                           title,
                           textContent: html,
+                          url: data.url,
                           mimeType: 'text/html',
                           fileSize: new Blob([html]).size,
                           createdAt: new Date().toISOString(),
@@ -4829,6 +4838,7 @@ ${historyContext}
                           ok: true,
                           title,
                           content: html,
+                          url: data.url,
                           template: args.template || 'landing',
                           agent: data.agent || 'backend',
                         };
@@ -5685,6 +5695,7 @@ ${historyContext}
             title={activeDocument.title}
             content={activeDocument.content}
             fileType={activeDocument.fileType}
+            url={activeDocument.url}
             personaName={personaName}
             onClose={() => {
               if (sandboxLogIntervalRef.current) {

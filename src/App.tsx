@@ -20,6 +20,8 @@ import { PWAInstallPrompt } from './components/PWAInstallPrompt';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 import { usePWA } from './hooks/usePWA';
 import { APP_VERSION } from './version';
+import { LocalFolderProvider } from './lib/localFolderContext';
+import { FolderWatcher } from './components/FolderWatcher';
 
 /* ── Theme system ── */
 type Theme = 'dark' | 'light';
@@ -257,7 +259,8 @@ export default function App() {
   }
 
   return (
-    <>
+    <LocalFolderProvider userId={user?.uid ?? null}>
+      <FolderWatcher userId={user?.uid ?? null} />
       <BeatriceAgent
         user={user}
         googleToken={googleToken}
@@ -280,6 +283,6 @@ export default function App() {
         onDismiss={pwa.dismissUpdate}
         onUpdate={pwa.triggerUpdate}
       />
-    </>
+    </LocalFolderProvider>
   );
 }

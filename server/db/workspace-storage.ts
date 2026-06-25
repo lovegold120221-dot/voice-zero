@@ -9,6 +9,7 @@ export interface WorkspaceOutput {
   type: 'document' | 'image' | 'screenshot' | 'capture' | 'app';
   title: string;
   textContent?: string;
+  url?: string;
   mimeType: string;
   fileSize: number;
   createdAt: string;

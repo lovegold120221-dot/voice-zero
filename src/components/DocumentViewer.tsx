@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
 import { AnimatePresence } from 'motion/react';
-import { X, FileText, FileDown, RotateCw, Monitor, Tablet, Smartphone, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { X, FileText, FileDown, RotateCw, Monitor, Tablet, Smartphone, ChevronLeft, ChevronRight, RefreshCw, Copy, Check } from 'lucide-react';
 
 interface DocumentViewerProps {
   title: string;
   content: string;
   fileType?: string;
+  url?: string;
   onClose: () => void;
   personaName: string;
   onRefine?: () => void;
@@ -23,15 +24,31 @@ export function DocumentViewer({
   title,
   content,
   fileType = 'html',
+  url,
   onClose,
   onRefine,
 }: DocumentViewerProps) {
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [viewport, setViewport] = useState<ViewportSize>('desktop');
   const [key, setKey] = useState(0);
+  const [copied, setCopied] = useState(false);
   const previewRef = useRef<HTMLIFrameElement>(null);
 
   const handleRefresh = () => setKey(k => k + 1);
+
+  const handleCopyLink = () => {
+    let textToCopy = url;
+    if (!textToCopy && content) {
+      const blob = new Blob([content], { type: 'text/html' });
+      textToCopy = URL.createObjectURL(blob);
+    }
+    
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const handleDownloadBlob = useCallback((blob: Blob, ext: string) => {
     const url = URL.createObjectURL(blob);
@@ -64,9 +81,16 @@ export function DocumentViewer({
         </button>
 
         {/* URL bar */}
-        <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--bg-base)] border border-[var(--border)] text-xs text-[var(--text-secondary)] font-mono truncate mx-1 select-all cursor-text">
+        <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--bg-base)] border border-[var(--border)] text-xs text-[var(--text-secondary)] font-mono truncate mx-1 select-all cursor-text relative group">
           <span className="text-[var(--accent)] shrink-0">◆</span>
-          <span className="truncate">/{title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}/</span>
+          <span className="truncate">{url || `/${title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}/`}</span>
+          <button 
+            onClick={handleCopyLink}
+            className="absolute right-1 p-1 rounded bg-[var(--bg-base)] border border-[var(--border)] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[var(--bg-glass-hover)]"
+            title="Copy Link"
+          >
+            {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+          </button>
         </div>
 
         {/* Viewport controls */}
@@ -155,9 +179,10 @@ export function DocumentViewer({
           <iframe
             key={key}
             ref={previewRef}
-            srcDoc={fileType === 'html' ? content : `<pre style="font-family:monospace;white-space:pre-wrap;padding:20px;font-size:14px;color:var(--text-primary);background:var(--bg-base)">${content.replace(/</g, '&lt;')}</pre>`}
+            src={url || undefined}
+            srcDoc={!url ? (fileType === 'html' ? content : `<pre style="font-family:monospace;white-space:pre-wrap;padding:20px;font-size:14px;color:var(--text-primary);background:var(--bg-base)">${content.replace(/</g, '&lt;')}</pre>`) : undefined}
             className="w-full h-full border-0"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
             title="Document Preview"
             style={viewport === 'mobile' ? { paddingTop: '24px' } : undefined}
           />
