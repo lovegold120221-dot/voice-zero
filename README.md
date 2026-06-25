@@ -1,6 +1,6 @@
 # Beatrice — AI Voice Agent by Eburon AI
 
-**Beatrice** is a real-time voice AI agent powered by the **Eburon Live API** with WhatsApp integration, multi-language support, persistent memory, unlimited document generation, Google Drive sync, local filesystem access, app building, and 10 specialized Belgian administrative tools. Built by [Eburon AI](https://eburon.ai).
+**Beatrice** is a real-time voice AI agent powered by the **Eburon Live API** with WhatsApp integration, multi-language support, persistent memory, unlimited document generation, Google Drive sync, **local filesystem + terminal access**, **automatic workspace setup** (OpenCode CLI + Ollama + local AI model), app building, and 10 specialized Belgian administrative tools. Built by [Eburon AI](https://eburon.ai).
 
 <p align="center">
   <a href="https://whatsapp.eburon.ai">
@@ -32,9 +32,20 @@ Backend (Express + tsx)
   ├─ Cerebras Browser Automation
   ├─ Ollama LLM Proxy (SSE streaming)
   ├─ Workspace API (filesystem JSON persistence)
+  ├─ Server Terminal (VPS command execution, PWA site cloning)
   ├─ WhatsApp Media Cache (disk + CDN fallback)
   ├─ Audio Transcription (Eburon API)
   └─ Web Glance (DuckDuckGo)
+
+Local Machine (Beatrice Local Daemon)
+  ├─ Terminal Command Execution (POST /run)
+  ├─ Full Workspace Setup (POST /setup)
+  │   ├─ Node.js 22 (via nvm)
+  │   ├─ OpenCode CLI (curl get.opencode.ai | sh)
+  │   ├─ Ollama (local LLM server)
+  │   ├─ eburon-sandbox-worker model pull
+  │   └─ OpenCode config (primary: Ollama, fallback: 6 Zen free models)
+  └─ Browser Bridge (fetch to localhost:55420)
 
 AI Layer
   └─ Eburon Voice (Live API — text, vision, realtime voice)
@@ -42,7 +53,7 @@ AI Layer
 Data Layer
   ├─ Supabase (PostgreSQL — memories, messages, settings, media)
   ├─ Firebase Auth (Google OAuth)
-  ├─ IndexedDB (local workspace — primary store)
+  ├─ IndexedDB (local workspace + folder handle persistence — BeatriceDB v2)
   ├─ Google Drive (cloud workspace sync — Beatrice_Workspace folder)
   └─ Filesystem workspace JSON (server-side backup)
 ```
@@ -68,6 +79,9 @@ Data Layer
 
 - **Real-Time Voice** — Low-latency PCM16 bidirectional audio via WebSocket with AudioWorkletNode (no ScriptProcessor), VAD, interruption handling, 5 voice profiles
 - **WhatsApp Integration** — Baileys-based pairing (QR/OTP), full history sync, media caching to disk, audio transcription, auto Belgian phone normalization, SSE real-time streaming. **Always resyncs history before any operation**
+- **Connect Local Folder** — Onboarding step 1 on desktop (mandatory, no skip). Downloads a one-click launcher to the user's Downloads folder — double-click to start the local daemon. Auto-detects connection and persists folder handle in IndexedDB for instant reconnection on next login. Auto-skipped on mobile/tablet.
+- **Local Workspace Setup** — Beatrice can install a full local AI stack via the daemon: Node.js 22 → OpenCode CLI (Zen free model chain) → Ollama → `media-pipe/eburon-sandbox-worker` model. One-click setup, no terminal commands needed.
+- **Local Terminal Access** — Execute shell commands, build tools, and git operations directly on the user's machine from the browser (via daemon on localhost:55420).
 - **Unlimited Document Generator** — ANY document type (contracts, reports, invoices, proposals, dashboards, presentations, policies, plans, analyses, forms, certificates). No template limits. CEO/presentation-grade output always — never placeholder text
 - **Google Drive Sync** — All generated outputs (documents, websites, apps) automatically uploaded to a `Beatrice_Workspace` folder on Google Drive
 - **Proactive Memory** — Beatrice automatically saves user preferences, facts, deadlines, and personal info via `add_to_memory`. Memories persist across sessions and are pre-loaded at session start
@@ -82,6 +96,7 @@ Data Layer
 - **Full Dark + Light Themes** — CSS custom properties, 70+ override rules
 - **Content Filtering Toggle** — Disable censorship via Profile settings
 - **Progressive Web App** — Full PWA with offline support, install banner, update detection with version tracking
+- **Onboarding v2** — Versioned onboarding (`beatrice_onboarding_version`) forces existing users through new steps. Desktop flow: Connect Local Folder → WhatsApp Link → Permissions → Location. Mobile: WhatsApp Link → Permissions → Location.
 
 ### Workspace System
 Every output Beatrice produces is automatically saved:
@@ -188,6 +203,7 @@ public/
 ├── manifest.json               # PWA manifest
 ├── sw.js                       # Service worker (versioned caching, update detection)
 ├── icon-eburon.svg             # App icon
+├── beatrice-local-daemon.mjs   # Local daemon (terminal, OpenCode, Ollama setup)
 └── *-template.html             # Legacy document templates (deprecated — sandbox generates directly)
 ```
 
@@ -210,6 +226,46 @@ Beatrice organizes her capabilities into skill categories, each with natural tri
 | **Web Browsing** | "go to this website", "scrape", "fill form" |
 | **Document Creation** | "create a document", "draft a letter", "make a proposal" |
 | **Local Filesystem** | "my files", "local folder", "read this file", "save to my computer" |
+| **Local Terminal** | "run this command", "install opencode", "set up my workspace", "install ollama" |
+
+---
+
+## Onboarding Flow
+
+Beatrice uses a **versioned onboarding** system (`beatrice_onboarding_version = 2`) that forces existing users through new steps when bumped.
+
+### Desktop (macOS / Linux / Windows)
+| Step | Required | Skip |
+|---|---|---|
+| 1. Connect Local Folder | ✅ mandatory | no skip |
+| 2. Link WhatsApp | ⬜ optional | skips to main page |
+| 3. Permissions | ✅ | no skip |
+| 4. Location | ⬜ optional | skip available |
+
+### Mobile / Tablet
+| Step | Required | Skip |
+|---|---|---|
+| 1. Link WhatsApp | ⬜ optional | skips to main page |
+| 2. Permissions | ✅ | no skip |
+| 3. Location | ⬜ optional | skip available |
+
+Step 1 (Connect Local Folder) persists the `FileSystemDirectoryHandle` in IndexedDB. On next login, if the handle is still valid and the daemon is reachable, the step is auto-skipped.
+
+### Local Daemon (beatrice-local-daemon.mjs)
+Zero-dependency HTTP server running on `http://127.0.0.1:55420`:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Liveness check |
+| `/run` | POST | Execute shell command `{command, cwd, timeout}` |
+| `/setup` | POST | Full workspace setup (Node + OpenCode + Ollama + model) |
+| `/setup-status` | GET | Check which components are installed |
+| `/install-opencode` | POST | Install OpenCode CLI only |
+| `/install-ollama` | POST | Install Ollama only |
+| `/pull-model` | POST | Pull an Ollama model `{model}` |
+| `/ollama-models` | GET | List pulled models |
+| `/configure-opencode` | POST | Set OpenCode config (primary model + Zen fallbacks) |
+| `/platform` | GET | OS + home directory info |
 
 ---
 
