@@ -1276,11 +1276,13 @@ export function BeatriceAgent({
     if (!session || !text.trim() || !isActiveRef.current || !sessionHealthyRef.current) return;
     try {
       if (typeof (session as any).sendRealtimeInput === 'function') {
-        (session as any).sendRealtimeInput({ text });
+        const result = (session as any).sendRealtimeInput({ text });
+        if (result && typeof result.catch === 'function') result.catch(() => {});
       } else if (typeof (session as any).send === 'function') {
-        (session as any).send({
+        const result = (session as any).send({
           realtimeInput: { text }
         });
+        if (result && typeof result.catch === 'function') result.catch(() => {});
       }
     } catch {} // Silently skip if session is closing
   };
@@ -1294,17 +1296,19 @@ export function BeatriceAgent({
     if (!session || !base64Data || !isActiveRef.current || !sessionHealthyRef.current) return;
     try {
       if (typeof (session as any).sendRealtimeInput === 'function') {
-        (session as any).sendRealtimeInput({
+        const result = (session as any).sendRealtimeInput({
           audio: { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
         });
+        if (result && typeof result.catch === 'function') result.catch(() => {});
       } else if (typeof (session as any).send === 'function') {
-        (session as any).send({
+        const result = (session as any).send({
           realtimeInput: {
             mediaChunks: [
               { data: base64Data, mimeType: 'audio/pcm;rate=16000' }
             ]
           }
         });
+        if (result && typeof result.catch === 'function') result.catch(() => {});
       }
     } catch {} // Silently skip if session is closing
   };
@@ -5853,6 +5857,12 @@ ${historyContext}
             sessionRef.current = null;
 
             if (isActiveRef.current && reason !== 'User requested stop') {
+              // Don't reconnect on quota/resource exhaustion — it won't help
+              if (/quota|exhausted|resource|limit|billing/i.test(reason)) {
+                console.warn('Live session quota exhausted — stopping auto-reconnect');
+                stopSession();
+                return;
+              }
               // Auto-reconnect — save context and retry
               reconnectContextRef.current = conversationBufferRef.current.join('\n');
               conversationBufferRef.current = [];
