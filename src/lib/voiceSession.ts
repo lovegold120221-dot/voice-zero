@@ -28,7 +28,7 @@ let _aiPromise: Promise<GoogleGenAI> | null = null;
  */
 export async function getVoiceClient(apiKey: string): Promise<GoogleGenAI> {
   if (!_aiPromise) {
-    _aiPromise = Promise.resolve(new GoogleGenAI({ apiKey }));
+    _aiPromise = Promise.resolve(new GoogleGenAI({ apiKey, apiVersion: 'v1beta' }));
   }
   return _aiPromise;
 }
